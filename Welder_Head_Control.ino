@@ -9,7 +9,7 @@ float version = 0.2;
 
 #include "AnalogPin.h"
 
-int ThermistorPin = 0;
+int ThermistorPin = A7;
 int Vo;
 float R1 = 10000;
 float logR2, R2;
@@ -19,25 +19,29 @@ float c1 = 1.009249522e-03, c2 = 2.378405444e-04, c3 = 2.019202697e-07;
 // ------------------ PID  ------------------
 #include <PID_v1.h>
 #define Heater 5
-#define HeaterLed 11
+//#define HeaterLed 11
+#define HeaterLed 10 
 //#define Poti A2
 AnalogPin INPoti(A2);
 int valuePoti;
+uint32_t val;
 double Setpoint, Output;
 int BangBang = 4; // +- 4°C
+int BangMIN = 4;  // Setpoint + BangMIN Turn On  PID
+int BangMAX = 3;  // Setpoint + BangMAX Turn Off PID
 
 //double aggKp=4, aggKi=0.2, aggKd=1;
 //double aggKp=2, aggKi=5, aggKd=1;
 //double aggKp = 8, aggKi = 0.4, aggKd = 2; // bigger
 //double aggKp=90, aggKi=30, aggKd=80; // bigger + bigger
 //double aggKp=88.8, aggKi=4.32, aggKd=400; // Marlin configuration
-double aggKp = 22.2, aggKi = 1.08, aggKd = 114; // Marlin configuration
+//double aggKp = 22.2, aggKi = 1.08, aggKd = 114; // Marlin configuration
 //double consKp=1, consKi=0.05, consKd=0.25;
 //double consKp=2, consKi=5, consKd=1;
 //double consKp = 90, consKi = 30, consKd = 80;
-double consKp = 22.2, consKi = 1.08, consKd = 114;  // Marlin configuration
 //double consKp = 45, consKi = 15, consKd = 40;
 //double consKp=0.5, consKi=0.025, consKd=0.12; // smaller
+//double consKp = 22.2, consKi = 1.08, consKd = 114;  // Marlin configuration
 
 PID myPID(&Tc, &Output, &Setpoint, 22.2, 1.08, 114, DIRECT);
 //PID myPID(&Tc, &Output, &Setpoint, consKp, consKi, consKd, DIRECT);
@@ -56,12 +60,11 @@ PID myPID(&Tc, &Output, &Setpoint, 22.2, 1.08, 114, DIRECT);
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-int minTemp = 98;
-int maxTemp = 255;
+int minTemp = 194;
+int maxTemp = 250;
 
 unsigned long prevMillis;
-int SerialSendTime = 100;
-int refreshTime = 100;
+int refreshTime = 10; // Display refresh time in millisecond
 
 // Buttons
 #define enterButton 2
@@ -117,27 +120,34 @@ void setup() {
   display.println("Pr. Enter");
   display.display();
 
-  while (digitalRead(enterButton) == HIGH) {
-  }
-  delay(450);
+  //  while (digitalRead(enterButton) == HIGH) {
+  //  }
+  delay(1000);
 }
 
 // ---------- LOOP ----------
 // ---------- LOOP ----------
 void loop() {
-  
+
+  // Sens button to Start heating state
   sensButton();
 
   // Read Poti
-  INPoti.setNoiseThreshold(10);
-  valuePoti = INPoti.read();
+  val = 0;
+  int sampleNumPot = 5;
+  INPoti.setNoiseThreshold(5);
+  for (int i = 0; i < sampleNumPot; i++) {
+    val += INPoti.read();
+  }
+  valuePoti = int(val / sampleNumPot);
+  //valuePoti = INPoti.read();
   Setpoint = map(valuePoti, 0, 1023, minTemp, maxTemp);
-  if (Setpoint <= 100) {
+  if (Setpoint <= minTemp) {
     Setpoint = 0;
   }
 
   // Start Heateing
-  if (startState == true) { 
+  if (startState == true) {
     readTemp();
     controlPID();
   }
@@ -147,16 +157,12 @@ void loop() {
     analogWrite(HeaterLed, 0);
   }
 
+  // Read Temperature and Display
   if (millis() - prevMillis >= refreshTime) {
+    //readTemp();
     displayValues();
     prevMillis = millis();
   }
-  //  if (millis() - prevMillis >= SerialSendTime) {
-  //    Serial.print(Setpoint);
-  //    Serial.print(",");
-  //    Serial.println(Tc);
-  //    prevMillis = millis();
-  //  }
 
 }
 // ---------- LOOP ----------
@@ -167,7 +173,7 @@ void sensButton() {
   if (lastState == true) {
     if (ButtonValue == LOW && millis() - prevMillisButton > 50) {
       startState = !startState;
-      delay(500);
+      delay(300);
       lastState == false;
     }
   }
@@ -177,15 +183,16 @@ void sensButton() {
   }
 }
 
-
 void readTemp() {
   //Vo = analogRead(ThermistorPin);
-  int valIn = 0;
-  int sampleNum = 10;
+
+  long valIn = 0;
+  int sampleNum = 5;
   for (int i = 0; i < sampleNum; i++) {
     valIn = valIn + analogRead(ThermistorPin);
   }
   Vo = int(valIn / sampleNum);
+  
   R2 = R1 * (1023.0 / (float)Vo - 1.0);
   logR2 = log(R2);
   T = (1.0 / (c1 + c2 * logR2 + c3 * logR2 * logR2 * logR2));
@@ -194,6 +201,27 @@ void readTemp() {
 
 void controlPID() {
   // PID control
+  if (Setpoint <= minTemp) {
+    analogWrite(Heater, 0);
+    analogWrite(HeaterLed, 0);
+  }
+  else if ( Tc >= Setpoint - BangMIN && Tc <= Setpoint + BangMAX && Setpoint >= minTemp ) {
+    myPID.Compute();
+    analogWrite(Heater, Output);
+    analogWrite(HeaterLed, Output);
+  }
+  else if ( Tc < Setpoint - BangMIN && Setpoint >= minTemp ) {
+    //myPID.Compute();
+    analogWrite(Heater, 255);
+    analogWrite(HeaterLed, 255);
+  }
+  else {
+    //myPID.Compute();
+    analogWrite(Heater, 0);
+    analogWrite(HeaterLed, 0);
+  }
+
+  // Display Text and Icon
   double gap = abs(Setpoint - Tc);
   if (gap < 10)
   {
@@ -208,26 +236,6 @@ void controlPID() {
     display.drawCircle(54, 38, 3, SSD1306_WHITE);
     display.setCursor(4, 35);
     display.println("Heating");
-  }
-
-  //myPID.Compute();
-
-  if (Setpoint <= 100) {
-    analogWrite(Heater, 0);
-    analogWrite(HeaterLed, 0);
-  }
-  else if ( Tc >= Setpoint - BangBang && Tc <= Setpoint + BangBang && Setpoint >= 101 ) {
-    myPID.Compute();
-    analogWrite(Heater, Output);
-    analogWrite(HeaterLed, Output);
-  }
-  else if ( Tc < Setpoint - BangBang && Setpoint >= 101 ) {
-    analogWrite(Heater, 255);
-    analogWrite(HeaterLed, 255);
-  }
-  else {
-    analogWrite(Heater, 0);
-    analogWrite(HeaterLed, 0);
   }
 }
 
@@ -245,7 +253,7 @@ void displayValues() {
     display.println(n);
     n++;
   }
-  display.fillRect(102,47,24,15, SSD1306_WHITE);
+  display.fillRect(102, 47, 24, 15, SSD1306_WHITE);
   display.setCursor(108, 51);
   display.setTextColor(BLACK);
   display.println("->");
@@ -254,7 +262,7 @@ void displayValues() {
   display.drawLine(60, 30, 60, 45, SSD1306_WHITE);
   display.setCursor(63, 35);
   display.println("F 2.5m/min");
-  
+
   display.setCursor(5, 5);
   display.println("SetPoint:");
   display.setTextSize(1);
