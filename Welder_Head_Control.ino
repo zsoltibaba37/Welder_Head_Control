@@ -19,7 +19,6 @@ float c1 = 1.009249522e-03, c2 = 2.378405444e-04, c3 = 2.019202697e-07;
 // ------------------ PID  ------------------
 #include <PID_v1.h>
 #define Heater 5
-//#define HeaterLed 11
 #define HeaterLed 10 
 //#define Poti A2
 AnalogPin INPoti(A2);
@@ -28,7 +27,7 @@ uint32_t val;
 double Setpoint, Output;
 int BangBang = 4; // +- 4°C
 int BangMIN = 4;  // Setpoint + BangMIN Turn On  PID
-int BangMAX = 3;  // Setpoint + BangMAX Turn Off PID
+int BangMAX = 4;  // Setpoint + BangMAX Turn Off PID
 
 //double aggKp=4, aggKi=0.2, aggKd=1;
 //double aggKp=2, aggKi=5, aggKd=1;
@@ -64,7 +63,7 @@ int minTemp = 194;
 int maxTemp = 250;
 
 unsigned long prevMillis;
-int refreshTime = 10; // Display refresh time in millisecond
+int refreshTime = 20; // Display refresh time in millisecond
 
 // Buttons
 #define enterButton 2
@@ -80,6 +79,10 @@ void displayValues();
 
 void setup() {
   Serial.begin(115200);
+  
+  analogReference(EXTERNAL);
+  pinMode(ThermistorPin, INPUT);
+  
   // ------------------ PID  ------------------
   Vo = analogRead(ThermistorPin);
   R2 = R1 * (1023.0 / (float)Vo - 1.0);
@@ -93,6 +96,7 @@ void setup() {
   valuePoti = INPoti.read();
   Setpoint = map(valuePoti, 0, 1023, minTemp, maxTemp);
   myPID.SetMode(AUTOMATIC);
+  myPID.SetSampleTime(10);
 
   pinMode(HeaterLed, OUTPUT);
   pinMode(enterButton, INPUT_PULLUP);
@@ -165,9 +169,11 @@ void loop() {
   }
 
 }
-// ---------- LOOP ----------
-// ---------- LOOP ----------
+// ---------- End LOOP ----------
+// ---------- End LOOP ----------
 
+// ---------- Sens Button ---------- Sens Button ---------- Sens Button ----------
+// ---------- Sens Button ---------- Sens Button ---------- Sens Button ----------
 void sensButton() {
   ButtonValue = digitalRead(enterButton);
   if (lastState == true) {
@@ -182,12 +188,13 @@ void sensButton() {
     prevMillisButton = millis();
   }
 }
-
+// ---------- Read Temp ---------- Read Temp ---------- Read Temp ----------
+// ---------- Read Temp ---------- Read Temp ---------- Read Temp ----------
 void readTemp() {
   //Vo = analogRead(ThermistorPin);
 
   long valIn = 0;
-  int sampleNum = 5;
+  int sampleNum = 10;
   for (int i = 0; i < sampleNum; i++) {
     valIn = valIn + analogRead(ThermistorPin);
   }
@@ -199,6 +206,8 @@ void readTemp() {
   Tc = T - 273.15;
 }
 
+// ---------- Control PID ---------- Control PID ---------- Control PID ----------
+// ---------- Control PID ---------- Control PID ---------- Control PID ----------
 void controlPID() {
   // PID control
   if (Setpoint <= minTemp) {
@@ -211,12 +220,12 @@ void controlPID() {
     analogWrite(HeaterLed, Output);
   }
   else if ( Tc < Setpoint - BangMIN && Setpoint >= minTemp ) {
-    //myPID.Compute();
+    myPID.Compute();
     analogWrite(Heater, 255);
     analogWrite(HeaterLed, 255);
   }
   else {
-    //myPID.Compute();
+    myPID.Compute();
     analogWrite(Heater, 0);
     analogWrite(HeaterLed, 0);
   }
@@ -239,6 +248,8 @@ void controlPID() {
   }
 }
 
+// ---------- Display Values ---------- Display Values ---------- Display Values ----------
+// ---------- Display Values ---------- Display Values ---------- Display Values ----------
 void displayValues() {
   // Display Values
   display.drawLine(0, 0, 127, 0, SSD1306_WHITE);
