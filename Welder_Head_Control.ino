@@ -1,11 +1,12 @@
 /*
   WelderHead Control
 
+  v0.3 - Implement AutoPID
   V0.2 - New Display, PID with BangBang control,
   V0.1 - PID control two heater 12V DC -> Max 180°C
 */
 
-float version = 0.2;
+float version = 0.3;
 
 #include "AnalogPin.h"
 
@@ -17,34 +18,24 @@ double T, Tc, Tf;
 float c1 = 1.009249522e-03, c2 = 2.378405444e-04, c3 = 2.019202697e-07;
 
 // ------------------ PID  ------------------
-#include <PID_v1.h>
+#include <AutoPID.h>
 #define Heater 5
 #define HeaterLed 10 
-//#define Poti A2
+
 AnalogPin INPoti(A2);
 int valuePoti;
 uint32_t val;
 double Setpoint, Output;
-int BangBang = 4; // +- 4°C
-int BangMIN = 4;  // Setpoint + BangMIN Turn On  PID
-int BangMAX = 4;  // Setpoint + BangMAX Turn Off PID
 
-//double aggKp=4, aggKi=0.2, aggKd=1;
-//double aggKp=2, aggKi=5, aggKd=1;
-//double aggKp = 8, aggKi = 0.4, aggKd = 2; // bigger
-//double aggKp=90, aggKi=30, aggKd=80; // bigger + bigger
-//double aggKp=88.8, aggKi=4.32, aggKd=400; // Marlin configuration
-//double aggKp = 22.2, aggKi = 1.08, aggKd = 114; // Marlin configuration
-//double consKp=1, consKi=0.05, consKd=0.25;
-//double consKp=2, consKi=5, consKd=1;
-//double consKp = 90, consKi = 30, consKd = 80;
-//double consKp = 45, consKi = 15, consKd = 40;
-//double consKp=0.5, consKi=0.025, consKd=0.12; // smaller
-//double consKp = 22.2, consKi = 1.08, consKd = 114;  // Marlin configuration
+#define BangBang 4
+#define OUTPUT_MIN 0
+#define OUTPUT_MAX 255
+#define KP 22.2
+#define KI 1.08
+#define KD 114.0
 
-PID myPID(&Tc, &Output, &Setpoint, 22.2, 1.08, 114, DIRECT);
-//PID myPID(&Tc, &Output, &Setpoint, consKp, consKi, consKd, DIRECT);
-//PID myPID(&Tc, &Output, &Setpoint, consKp, consKi, consKd, P_ON_M, DIRECT);
+//PID myPID(&Tc, &Output, &Setpoint, 22.2, 1.08, 114, DIRECT);
+AutoPID myPID(&Tc, &Setpoint, &Output, OUTPUT_MIN, OUTPUT_MAX, KP, KI, KD);
 
 // ------------------ I2C Oled ------------------
 #include <SPI.h>
@@ -74,9 +65,11 @@ bool lastState = true;
 
 void sensButton();
 void readTemp();
-void controlPID();
+void displayHEAT();
 void displayValues();
 
+// ---------- SETUP ---------- SETUP ---------- SETUP ---------- SETUP ----------
+// ---------- SETUP ---------- SETUP ---------- SETUP ---------- SETUP ----------
 void setup() {
   Serial.begin(115200);
   
@@ -95,8 +88,9 @@ void setup() {
   INPoti.setNoiseThreshold(5);
   valuePoti = INPoti.read();
   Setpoint = map(valuePoti, 0, 1023, minTemp, maxTemp);
-  myPID.SetMode(AUTOMATIC);
-  myPID.SetSampleTime(10);
+
+  myPID.setBangBang(BangBang);
+  myPID.setTimeStep(100);
 
   pinMode(HeaterLed, OUTPUT);
   pinMode(enterButton, INPUT_PULLUP);
@@ -106,7 +100,6 @@ void setup() {
     Serial.println(F("-- SSD1306 allocation failed --"));
     for (;;);
   }
-
 
   display.clearDisplay();
   display.setTextSize(2);
@@ -126,19 +119,20 @@ void setup() {
 
   //  while (digitalRead(enterButton) == HIGH) {
   //  }
-  delay(1000);
+  delay(500);
 }
 
-// ---------- LOOP ----------
-// ---------- LOOP ----------
+// ---------- LOOP ---------- LOOP ---------- LOOP ---------- LOOP ----------
+// ---------- LOOP ---------- LOOP ---------- LOOP ---------- LOOP ----------
 void loop() {
-
+  //myPID.run();
+  
   // Sens button to Start heating state
   sensButton();
-
+  
   // Read Poti
   val = 0;
-  int sampleNumPot = 5;
+  int sampleNumPot = 2;
   INPoti.setNoiseThreshold(5);
   for (int i = 0; i < sampleNumPot; i++) {
     val += INPoti.read();
@@ -150,10 +144,20 @@ void loop() {
     Setpoint = 0;
   }
 
+  // Read Temperature and Display
+  if (millis() - prevMillis >= refreshTime) {
+    readTemp();
+    displayValues();
+    prevMillis = millis();
+  }
+
   // Start Heateing
   if (startState == true) {
     readTemp();
-    controlPID();
+    myPID.run();
+    analogWrite(Heater, Output);
+    digitalWrite(HeaterLed, myPID.atSetPoint(3));
+    displayHEAT();
   }
   else if (startState == false) {
     readTemp();
@@ -161,16 +165,9 @@ void loop() {
     analogWrite(HeaterLed, 0);
   }
 
-  // Read Temperature and Display
-  if (millis() - prevMillis >= refreshTime) {
-    //readTemp();
-    displayValues();
-    prevMillis = millis();
-  }
-
 }
-// ---------- End LOOP ----------
-// ---------- End LOOP ----------
+// ---------- End LOOP ---------- End LOOP ---------- End LOOP ---------- End LOOP ----------
+// ---------- End LOOP ---------- End LOOP ---------- End LOOP ---------- End LOOP ----------
 
 // ---------- Sens Button ---------- Sens Button ---------- Sens Button ----------
 // ---------- Sens Button ---------- Sens Button ---------- Sens Button ----------
@@ -191,7 +188,7 @@ void sensButton() {
 // ---------- Read Temp ---------- Read Temp ---------- Read Temp ----------
 // ---------- Read Temp ---------- Read Temp ---------- Read Temp ----------
 void readTemp() {
-  //Vo = analogRead(ThermistorPin);
+//  Vo = analogRead(ThermistorPin);
 
   long valIn = 0;
   int sampleNum = 10;
@@ -208,27 +205,7 @@ void readTemp() {
 
 // ---------- Control PID ---------- Control PID ---------- Control PID ----------
 // ---------- Control PID ---------- Control PID ---------- Control PID ----------
-void controlPID() {
-  // PID control
-  if (Setpoint <= minTemp) {
-    analogWrite(Heater, 0);
-    analogWrite(HeaterLed, 0);
-  }
-  else if ( Tc >= Setpoint - BangMIN && Tc <= Setpoint + BangMAX && Setpoint >= minTemp ) {
-    myPID.Compute();
-    analogWrite(Heater, Output);
-    analogWrite(HeaterLed, Output);
-  }
-  else if ( Tc < Setpoint - BangMIN && Setpoint >= minTemp ) {
-    myPID.Compute();
-    analogWrite(Heater, 255);
-    analogWrite(HeaterLed, 255);
-  }
-  else {
-    myPID.Compute();
-    analogWrite(Heater, 0);
-    analogWrite(HeaterLed, 0);
-  }
+void displayHEAT() {
 
   // Display Text and Icon
   double gap = abs(Setpoint - Tc);
@@ -251,6 +228,21 @@ void controlPID() {
 // ---------- Display Values ---------- Display Values ---------- Display Values ----------
 // ---------- Display Values ---------- Display Values ---------- Display Values ----------
 void displayValues() {
+  
+
+  display.setTextSize(1);
+  display.setCursor(5, 20);
+  display.println("Temp:");
+  display.setTextSize(1);
+  display.setCursor(62, 20);
+  if(myPID.atSetPoint(3) == 1){
+    Tc = Setpoint;
+  }
+  display.println(Tc);
+  display.setCursor(110, 20);
+  display.println("C");
+  display.drawCircle(105, 20, 2, SSD1306_WHITE);
+  
   // Display Values
   display.drawLine(0, 0, 127, 0, SSD1306_WHITE);
   display.drawLine(0, 15, 127, 15, SSD1306_WHITE);
@@ -278,20 +270,11 @@ void displayValues() {
   display.println("SetPoint:");
   display.setTextSize(1);
   display.setCursor(62, 5);
+  //display.println((int)Setpoint);
   display.println(Setpoint);
   display.setCursor(110, 5);
   display.println("C");
   display.drawCircle(105, 5, 2, SSD1306_WHITE);
-
-  display.setTextSize(1);
-  display.setCursor(5, 20);
-  display.println("Temp:");
-  display.setTextSize(1);
-  display.setCursor(62, 20);
-  display.println(Tc);
-  display.setCursor(110, 20);
-  display.println("C");
-  display.drawCircle(105, 20, 2, SSD1306_WHITE);
 
   display.display();
   display.clearDisplay();
