@@ -15,13 +15,13 @@ float version = 0.3;
 #include <NTC_Thermistor.h>
 #include <AverageThermistor.h>
 
-#define THERMISTOR_PIN             A7
+#define THERMISTOR_PIN         A7
 #define REFERENCE_RESISTANCE   100000
 #define NOMINAL_RESISTANCE     100000
 #define NOMINAL_TEMPERATURE    25
 #define B_VALUE                3950
 
-#define READINGS_NUMBER 8
+#define READINGS_NUMBER 5
 #define DELAY_TIME 20
 
 Thermistor* thermistor = NULL;
@@ -39,11 +39,11 @@ uint32_t val;
 double Setpoint, Output;
 
 #define BANGBANG 4
-#define OUTPUT_MIN 0
-#define OUTPUT_MAX 255
-#define KP 22.2   // 22.2
-#define KI 1.08   // 1.08
-#define KD 114    // 114.0
+#define OUTPUT_MIN 0     // 0
+#define OUTPUT_MAX 255   // 255
+#define KP 22.2          // 22.2
+#define KI 1.08          // 1.08
+#define KD 114.0         // 114.0
 
 //PID myPID(&Tc, &Output, &Setpoint, 22.2, 1.08, 114, DIRECT);
 AutoPID myPID(&Tc, &Setpoint, &Output, OUTPUT_MIN, OUTPUT_MAX, KP, KI, KD);
@@ -88,7 +88,7 @@ void displayValues();
 void setup() {
   Serial.begin(115200);
   analogReference(EXTERNAL);
-
+  
   Thermistor* originThermistor = new NTC_Thermistor(
     THERMISTOR_PIN,
     REFERENCE_RESISTANCE,
@@ -171,8 +171,10 @@ void loop() {
   if (startState == true) {
     myPID.run();
     analogWrite(Heater, Output);
+    //digitalWrite(HeaterLed, Output);
     digitalWrite(HeaterLed, myPID.atSetPoint(4));
     displayHEAT();
+    //Serial.println("Output: " + (String)Output);
   }
   else if (startState == false) {
     analogWrite(Heater, 0);
@@ -208,12 +210,14 @@ void displayHEAT() {
   double gap = abs(Setpoint - Tc);
   if (gap < 10)
   {
+    //myPID.setGains(20.1, 1.0, 100.0);
     display.fillCircle(54, 38, 3, SSD1306_WHITE);
     display.setCursor(4, 35);
     display.println("Heating");
   }
   else
   {
+    //myPID.setGains(22.2, 1.08, 114.0);
     display.drawCircle(54, 38, 3, SSD1306_WHITE);
     display.setCursor(4, 35);
     display.println("Heating");
