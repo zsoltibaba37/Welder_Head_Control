@@ -1,12 +1,14 @@
 /*
   WelderHead Control
 
+  v0.5 - PID Now holt stable Temp +-1°C
+  v0.4 - 10k Reference Resistor, New P I D calc
   v0.3 - Implement AutoPID & NTC Thermistor
   V0.2 - New Display, PID with BangBang control,
   V0.1 - PID control two heater 12V DC -> Max 180°C
 */
 
-float version = 0.3;
+float version = 0.5;
 
 // ------------------ Thermistor  ------------------
 // ------------------ Thermistor  ------------------
@@ -16,7 +18,7 @@ float version = 0.3;
 #include <AverageThermistor.h>
 
 #define THERMISTOR_PIN         A7
-#define REFERENCE_RESISTANCE   100000
+#define REFERENCE_RESISTANCE   10000
 #define NOMINAL_RESISTANCE     100000
 #define NOMINAL_TEMPERATURE    25
 #define B_VALUE                3950
@@ -41,11 +43,11 @@ double Setpoint, Output;
 #define BANGBANG 4
 #define OUTPUT_MIN 0     // 0
 #define OUTPUT_MAX 255   // 255
-#define KP 22.2          // 22.2
-#define KI 1.08          // 1.08
-#define KD 114.0         // 114.0
+#define KP 5             // 5;     15;
+#define KI 0.2           // 0.2;  0.3;
+#define KD 0.1           // 0.1;  0.0;
 
-//PID myPID(&Tc, &Output, &Setpoint, 22.2, 1.08, 114, DIRECT);
+//myPID.setGains(20.1, 1.0, 100.0);
 AutoPID myPID(&Tc, &Setpoint, &Output, OUTPUT_MIN, OUTPUT_MAX, KP, KI, KD);
 
 // ------------------ I2C Oled ------------------
@@ -107,7 +109,7 @@ void setup() {
   valuePoti = INPoti.read();
   Setpoint = map(valuePoti, 0, 1023, minTemp, maxTemp);
 
-  myPID.setBangBang(BANGBANG);
+  //myPID.setBangBang(BANGBANG);
   myPID.setTimeStep(20);
 
   pinMode(HeaterLed, OUTPUT);
@@ -137,7 +139,8 @@ void setup() {
 
   //  while (digitalRead(ENTER_BUTTON) == HIGH) {
   //  }
-  delay(500);
+  delay(1000);
+  display.clearDisplay();
 }
 
 // ---------- LOOP ---------- LOOP ---------- LOOP ---------- LOOP ----------
@@ -170,11 +173,18 @@ void loop() {
   // Start Heateing
   if (startState == true) {
     myPID.run();
-    analogWrite(Heater, Output);
-    //digitalWrite(HeaterLed, Output);
-    digitalWrite(HeaterLed, myPID.atSetPoint(4));
+    if(Tc >= Setpoint+6 || Tc > maxTemp+15){
+      analogWrite(Heater, 0);  // ---------- EMERGENCY STOP ----------
+    }
+    else{
+      analogWrite(Heater, Output);  
+    }
+    digitalWrite(HeaterLed, myPID.atSetPoint(2));
     displayHEAT();
-    //Serial.println("Output: " + (String)Output);
+    
+//    Serial.print(Setpoint);
+//    Serial.print(",");
+//    Serial.println(Tc);
   }
   else if (startState == false) {
     analogWrite(Heater, 0);
@@ -192,7 +202,7 @@ void sensButton() {
   if (lastState == true) {
     if (ButtonValue == LOW && millis() - prevMillisButton > 50) {
       startState = !startState;
-      delay(300);
+      delay(150);
       lastState == false;
     }
   }
@@ -207,10 +217,11 @@ void sensButton() {
 void displayHEAT() {
 
   // Display Text and Icon
-  double gap = abs(Setpoint - Tc);
-  if (gap < 10)
+  //double gap = abs(Setpoint - Tc);
+  //if (gap < 2)
+  if (myPID.atSetPoint(2))
   {
-    //myPID.setGains(20.1, 1.0, 100.0);
+    
     display.fillCircle(54, 38, 3, SSD1306_WHITE);
     display.setCursor(4, 35);
     display.println("Heating");
@@ -259,9 +270,9 @@ void displayValues() {
     n++;
   }
   display.fillRect(102, 47, 24, 15, SSD1306_WHITE);
-  display.setCursor(108, 51);
+  display.setCursor(112, 51);
   display.setTextColor(BLACK);
-  display.println("->");
+  display.println("M");
 
   display.setTextColor(WHITE);
   display.drawLine(60, 30, 60, 45, SSD1306_WHITE);
