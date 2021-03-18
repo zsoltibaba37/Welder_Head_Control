@@ -39,15 +39,16 @@ AnalogPin INPoti(A2);
 int valuePoti;
 uint32_t val;
 double Setpoint, Output;
+bool ResetPid = false;
 
-#define BANGBANG 4
-#define OUTPUT_MIN 0     // 0
-#define OUTPUT_MAX 255   // 255
-#define KP 5             // 5;     15;
-#define KI 0.2           // 0.2;  0.3;
-#define KD 0.1           // 0.1;  0.0;
+#define BANGBANG 1
+#define OUTPUT_MIN 0    // 0
+#define OUTPUT_MAX 255  // 255
+#define KP 8.00         // 8;     5.0;   15.0;
+#define KI 0.22         // 0.22;  0.22;  0.3;
+#define KD 0.1          // 0.1;   0.1;   0.0;
 
-//myPID.setGains(20.1, 1.0, 100.0);
+//myPID.setGains(22.2, 1.08, 114.0);
 AutoPID myPID(&Tc, &Setpoint, &Output, OUTPUT_MIN, OUTPUT_MAX, KP, KI, KD);
 
 // ------------------ I2C Oled ------------------
@@ -74,14 +75,13 @@ int refreshTime = 100; // Display refresh time in millisecond
 // ------------------ Buttons ------------------
 #define ENTER_BUTTON 2
 bool startState = false;
-unsigned long prevMillisButton;
-int ButtonValue;
-bool lastState = true;
+int ButtonState;
+int lastButtonState;
 
 // ------------------ VOID LIST ------------------
 // ------------------ VOID LIST ------------------
 void sensButton();
-//void readTemp();
+void readSetpoint();
 void displayHEAT();
 void displayValues();
 
@@ -89,8 +89,11 @@ void displayValues();
 // ---------- SETUP ---------- SETUP ---------- SETUP ---------- SETUP ----------
 void setup() {
   Serial.begin(115200);
+  // Button
+  pinMode(ENTER_BUTTON, INPUT_PULLUP);
+  lastButtonState = digitalRead(ENTER_BUTTON);
+
   analogReference(EXTERNAL);
-  
   Thermistor* originThermistor = new NTC_Thermistor(
     THERMISTOR_PIN,
     REFERENCE_RESISTANCE,
@@ -110,11 +113,10 @@ void setup() {
   Setpoint = map(valuePoti, 0, 1023, minTemp, maxTemp);
 
   //myPID.setBangBang(BANGBANG);
-  myPID.setTimeStep(20);
+  myPID.setTimeStep(22);
 
   pinMode(HeaterLed, OUTPUT);
-  pinMode(ENTER_BUTTON, INPUT_PULLUP);
-
+  
   // // --------------- Oled  ---------------
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D or 0x3C for 128x64
     Serial.println(F("-- SSD1306 allocation failed --"));
@@ -146,11 +148,72 @@ void setup() {
 // ---------- LOOP ---------- LOOP ---------- LOOP ---------- LOOP ----------
 // ---------- LOOP ---------- LOOP ---------- LOOP ---------- LOOP ----------
 void loop() {
-  // Sens button to Start heating 
+  // Sens button to Start heating
   sensButton();
   Tc = thermistor->readCelsius();
+  readSetpoint();
 
-  // Read Poti
+  // Refresh Display
+  if (millis() - prevMillis >= refreshTime) {
+    displayValues();
+    prevMillis = millis();
+  }
+
+  
+  // Start Heateing
+  int setCut = 18;
+  if (startState == true ) {
+    
+    if (myPID.atSetPoint(setCut) && ResetPid == true){
+      myPID.reset();
+      //myPID.setGains(6.0, 0.18, 0.05);
+      ResetPid = false;
+    }
+
+    myPID.run();
+
+    if ( Tc > Setpoint + 10 ) {
+//    if ( Tc > maxTemp + 15 ) {
+      analogWrite(Heater, 0);  // ---------- EMERGENCY STOP ----------
+    }
+    else {
+      analogWrite(Heater, Output);
+    }
+    digitalWrite(HeaterLed, myPID.atSetPoint(2));
+    displayHEAT();
+
+    Serial.print(Setpoint);
+    Serial.print(",");
+    Serial.print(Setpoint-setCut);
+    Serial.print(",");
+    Serial.print(Setpoint+setCut);
+    Serial.print(",");
+    Serial.println(Tc);
+  }
+  else if (startState == false) {
+    
+    //myPID.setGains(8.0, 0.22, 0.1);
+    
+    analogWrite(Heater, 0);
+    analogWrite(HeaterLed, 0);
+    
+    Serial.print(Setpoint);
+    Serial.print(",");
+    Serial.print(Setpoint-setCut);
+    Serial.print(",");
+    Serial.print(Setpoint+setCut);
+    Serial.print(",");    
+    Serial.println(Tc);
+  }
+
+}
+// ---------- End LOOP ---------- End LOOP ---------- End LOOP ---------- End LOOP ----------
+// ---------- End LOOP ---------- End LOOP ---------- End LOOP ---------- End LOOP ----------
+
+// ---------- Read Setpoint ---------- Read Setpoint ---------- Read Setpoint ----------
+// ---------- Read Setpoint ---------- Read Setpoint ---------- Read Setpoint ----------
+void readSetpoint() {
+  // Read Pot
   val = 0;
   int sampleNumPot = 2;
   INPoti.setNoiseThreshold(5);
@@ -163,52 +226,25 @@ void loop() {
   if (Setpoint <= minTemp) {
     Setpoint = 0;
   }
-
-  // Display Values
-  if (millis() - prevMillis >= refreshTime) {
-    displayValues();
-    prevMillis = millis();
-  }
-
-  // Start Heateing
-  if (startState == true) {
-    myPID.run();
-    if(Tc >= Setpoint+6 || Tc > maxTemp+15){
-      analogWrite(Heater, 0);  // ---------- EMERGENCY STOP ----------
-    }
-    else{
-      analogWrite(Heater, Output);  
-    }
-    digitalWrite(HeaterLed, myPID.atSetPoint(2));
-    displayHEAT();
-    
-//    Serial.print(Setpoint);
-//    Serial.print(",");
-//    Serial.println(Tc);
-  }
-  else if (startState == false) {
-    analogWrite(Heater, 0);
-    analogWrite(HeaterLed, 0);
-  }
-
 }
-// ---------- End LOOP ---------- End LOOP ---------- End LOOP ---------- End LOOP ----------
-// ---------- End LOOP ---------- End LOOP ---------- End LOOP ---------- End LOOP ----------
 
 // ---------- Sens Button ---------- Sens Button ---------- Sens Button ----------
 // ---------- Sens Button ---------- Sens Button ---------- Sens Button ----------
 void sensButton() {
-  ButtonValue = digitalRead(ENTER_BUTTON);
-  if (lastState == true) {
-    if (ButtonValue == LOW && millis() - prevMillisButton > 50) {
+  ButtonState = digitalRead(ENTER_BUTTON);
+  if (ButtonState != lastButtonState)
+  {
+    if (ButtonState == LOW && Setpoint >= minTemp && Setpoint <= maxTemp)
+    {
       startState = !startState;
-      delay(150);
-      lastState == false;
+      if (ResetPid == false){
+        ResetPid = true;
+      }
+      while(digitalRead(ENTER_BUTTON) != HIGH){
+        
+      }
     }
-  }
-  if (ButtonValue == HIGH) {
-    lastState == true;
-    prevMillisButton = millis();
+    lastButtonState == ButtonState;
   }
 }
 
@@ -221,7 +257,7 @@ void displayHEAT() {
   //if (gap < 2)
   if (myPID.atSetPoint(2))
   {
-    
+
     display.fillCircle(54, 38, 3, SSD1306_WHITE);
     display.setCursor(4, 35);
     display.println("Heating");
