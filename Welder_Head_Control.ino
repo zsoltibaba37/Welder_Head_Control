@@ -1,7 +1,7 @@
 /*
   WelderHead Control
 
-  v0.5 - PID Now holt stable Temp +-1°C
+  v0.5 - PID Now hold stable Temp +-1°C
   v0.4 - 10k Reference Resistor, New P I D calc
   v0.3 - Implement AutoPID & NTC Thermistor
   V0.2 - New Display, PID with BangBang control,
@@ -116,7 +116,7 @@ void setup() {
   myPID.setTimeStep(22);
 
   pinMode(HeaterLed, OUTPUT);
-  
+
   // // --------------- Oled  ---------------
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D or 0x3C for 128x64
     Serial.println(F("-- SSD1306 allocation failed --"));
@@ -148,23 +148,22 @@ void setup() {
 // ---------- LOOP ---------- LOOP ---------- LOOP ---------- LOOP ----------
 // ---------- LOOP ---------- LOOP ---------- LOOP ---------- LOOP ----------
 void loop() {
-  // Sens button to Start heating
+  // ---------- Sens button to Start heating
   sensButton();
   Tc = thermistor->readCelsius();
   readSetpoint();
 
-  // Refresh Display
+  // ---------- Refresh Display
   if (millis() - prevMillis >= refreshTime) {
     displayValues();
     prevMillis = millis();
   }
 
-  
-  // Start Heateing
-  int setCut = 18;
+  // ---------- Start Heateing
+  int resetCut = 18;
   if (startState == true ) {
-    
-    if (myPID.atSetPoint(setCut) && ResetPid == true){
+
+    if (myPID.atSetPoint(resetCut) && ResetPid == true) {
       myPID.reset();
       //myPID.setGains(6.0, 0.18, 0.05);
       ResetPid = false;
@@ -173,7 +172,7 @@ void loop() {
     myPID.run();
 
     if ( Tc > Setpoint + 10 ) {
-//    if ( Tc > maxTemp + 15 ) {
+      //    if ( Tc > maxTemp + 15 ) {
       analogWrite(Heater, 0);  // ---------- EMERGENCY STOP ----------
     }
     else {
@@ -181,30 +180,23 @@ void loop() {
     }
     digitalWrite(HeaterLed, myPID.atSetPoint(2));
     displayHEAT();
-
-    Serial.print(Setpoint);
-    Serial.print(",");
-    Serial.print(Setpoint-setCut);
-    Serial.print(",");
-    Serial.print(Setpoint+setCut);
-    Serial.print(",");
-    Serial.println(Tc);
   }
   else if (startState == false) {
-    
+
     //myPID.setGains(8.0, 0.22, 0.1);
-    
+
     analogWrite(Heater, 0);
     analogWrite(HeaterLed, 0);
-    
-    Serial.print(Setpoint);
-    Serial.print(",");
-    Serial.print(Setpoint-setCut);
-    Serial.print(",");
-    Serial.print(Setpoint+setCut);
-    Serial.print(",");    
-    Serial.println(Tc);
   }
+
+  // ---------- Serial Print measured values
+  Serial.print(Setpoint);
+  Serial.print(",");
+  Serial.print(Setpoint - resetCut);
+  Serial.print(",");
+  Serial.print(Setpoint + resetCut);
+  Serial.print(",");
+  Serial.println(Tc);
 
 }
 // ---------- End LOOP ---------- End LOOP ---------- End LOOP ---------- End LOOP ----------
@@ -237,12 +229,10 @@ void sensButton() {
     if (ButtonState == LOW && Setpoint >= minTemp && Setpoint <= maxTemp)
     {
       startState = !startState;
-      if (ResetPid == false){
+      if (ResetPid == false) {
         ResetPid = true;
       }
-      while(digitalRead(ENTER_BUTTON) != HIGH){
-        
-      }
+      while (digitalRead(ENTER_BUTTON) != HIGH) {}
     }
     lastButtonState == ButtonState;
   }
@@ -251,13 +241,12 @@ void sensButton() {
 // ---------- Display HEAT ---------- Display HEAT ---------- Display HEAT ----------
 // ---------- Display HEAT ---------- Display HEAT ---------- Display HEAT ----------
 void displayHEAT() {
-
   // Display Text and Icon
+
   //double gap = abs(Setpoint - Tc);
   //if (gap < 2)
   if (myPID.atSetPoint(2))
   {
-
     display.fillCircle(54, 38, 3, SSD1306_WHITE);
     display.setCursor(4, 35);
     display.println("Heating");
@@ -315,13 +304,13 @@ void displayValues() {
   display.setCursor(63, 35);
   display.println("F 2.5m/min");
 
-  display.setCursor(5, 5);
-  display.println("SetPoint:");
-  display.setCursor(62, 5);
-  display.println(Setpoint);
-  display.setCursor(110, 5);
-  display.println("C");
-  display.drawCircle(105, 5, 2, SSD1306_WHITE);
+  //  display.setCursor(5, 5);
+  //  display.println("SetPoint:");
+  //  display.setCursor(62, 5);
+  //  display.println(Setpoint);
+  //  display.setCursor(110, 5);
+  //  display.println("C");
+  //  display.drawCircle(105, 5, 2, SSD1306_WHITE);
 
   display.display();
   display.clearDisplay();
