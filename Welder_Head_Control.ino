@@ -1,7 +1,7 @@
 /*
   WelderHead Control
 
-  v0.6 - Select Synegy implement. 1-5 and Manual mode
+  v0.6 - Select Synergy implement. 1-5 and Manual mode
   v0.5 - PID Now hold stable Temp +-1°C
   v0.4 - 10k Reference Resistor, New P I D calc
   v0.3 - Implement AutoPID & NTC Thermistor
