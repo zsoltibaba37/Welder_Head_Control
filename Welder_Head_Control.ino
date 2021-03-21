@@ -1,6 +1,7 @@
 /*
   WelderHead Control
 
+  v0.6 - Select Synegy implement. 1-5 and Manual mode
   v0.5 - PID Now hold stable Temp +-1°C
   v0.4 - 10k Reference Resistor, New P I D calc
   v0.3 - Implement AutoPID & NTC Thermistor
@@ -8,7 +9,7 @@
   V0.1 - PID control two heater 12V DC -> Max 180°C
 */
 
-float version = 0.5;
+float version = 0.6;
 
 // ------------------ Thermistor  ------------------
 // ------------------ Thermistor  ------------------
@@ -23,8 +24,8 @@ float version = 0.5;
 #define NOMINAL_TEMPERATURE    25
 #define B_VALUE                3950
 
-#define READINGS_NUMBER 5
-#define DELAY_TIME 20
+#define READINGS_NUMBER 4
+#define DELAY_TIME 10
 
 Thermistor* thermistor = NULL;
 double Tc;
@@ -35,18 +36,19 @@ double Tc;
 #define Heater 5
 #define HeaterLed 10
 
-AnalogPin INPoti(A2);
+AnalogPin INPoti(A0); // Setpoint Potentiometer
 int valuePoti;
 uint32_t val;
 double Setpoint, Output;
 bool ResetPid = false;
+#define resetCut 18
 
 #define BANGBANG 1
 #define OUTPUT_MIN 0    // 0
 #define OUTPUT_MAX 255  // 255
-#define KP 8.00         // 8;     5.0;   15.0;
-#define KI 0.22         // 0.22;  0.22;  0.3;
-#define KD 0.1          // 0.1;   0.1;   0.0;
+#define KP 8.00         // 8;        8.0;   5.0;  15.0;
+#define KI 0.22         // 0.18;     0.22;  0.22;  0.3;
+#define KD 0.1       // 4000.0;   0.1;   0.1;   0.0;
 
 //myPID.setGains(22.2, 1.08, 114.0);
 AutoPID myPID(&Tc, &Setpoint, &Output, OUTPUT_MIN, OUTPUT_MAX, KP, KI, KD);
@@ -65,11 +67,11 @@ AutoPID myPID(&Tc, &Setpoint, &Output, OUTPUT_MIN, OUTPUT_MAX, KP, KI, KD);
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-int minTemp = 194;
-int maxTemp = 250;
+#define minTemp 194
+#define maxTemp 250
 
 unsigned long prevMillis;
-int refreshTime = 100; // Display refresh time in millisecond
+#define refreshTime 100 // Display refresh time in millisecond
 
 // ------------------ Buttons ------------------
 // ------------------ Buttons ------------------
@@ -77,10 +79,21 @@ int refreshTime = 100; // Display refresh time in millisecond
 bool startState = false;
 int ButtonState;
 int lastButtonState;
+#define MENU_BUTTON 3
+int MenuButtonState;
+int lastMenuButtonState;
+int MenuValue = 6;
+
+// ------------------ Feed rate ------------------
+// ------------------ Feed rate ------------------
+#define MIN_FEED 0.8
+#define MAX_FEED 2.0
+float feedRate = 1.1;
 
 // ------------------ VOID LIST ------------------
 // ------------------ VOID LIST ------------------
 void sensButton();
+void sensMenuButton();
 void readSetpoint();
 void displayHEAT();
 void displayValues();
@@ -91,7 +104,9 @@ void setup() {
   Serial.begin(115200);
   // Button
   pinMode(ENTER_BUTTON, INPUT_PULLUP);
+  pinMode(MENU_BUTTON, INPUT_PULLUP);
   lastButtonState = digitalRead(ENTER_BUTTON);
+  lastMenuButtonState = digitalRead(MENU_BUTTON);
 
   analogReference(EXTERNAL);
   Thermistor* originThermistor = new NTC_Thermistor(
@@ -141,26 +156,40 @@ void setup() {
 
   //  while (digitalRead(ENTER_BUTTON) == HIGH) {
   //  }
-  delay(1000);
+  delay(2000);
   display.clearDisplay();
 }
 
 // ---------- LOOP ---------- LOOP ---------- LOOP ---------- LOOP ----------
 // ---------- LOOP ---------- LOOP ---------- LOOP ---------- LOOP ----------
 void loop() {
-  // ---------- Sens button to Start heating
+  // ---------- Sens button, Read Temp, Read Setpoint
   sensButton();
+  sensMenuButton();
   Tc = thermistor->readCelsius();
-  readSetpoint();
+  if (MenuValue == 6){
+    readSetpoint();
+  }
+  //readSetpoint();
 
   // ---------- Refresh Display
   if (millis() - prevMillis >= refreshTime) {
     displayValues();
     prevMillis = millis();
+
+    // ---------- Serial Print measured values
+    Serial.print(Setpoint);
+    Serial.print(",");
+    Serial.print(Setpoint - resetCut);
+    Serial.print(",");
+    Serial.print(Setpoint + resetCut);
+    Serial.print(",");
+    Serial.println(Tc);
+    
   }
 
   // ---------- Start Heateing
-  int resetCut = 18;
+  //int resetCut = 18;
   if (startState == true ) {
 
     if (myPID.atSetPoint(resetCut) && ResetPid == true) {
@@ -182,21 +211,12 @@ void loop() {
     displayHEAT();
   }
   else if (startState == false) {
-
     //myPID.setGains(8.0, 0.22, 0.1);
-
     analogWrite(Heater, 0);
     analogWrite(HeaterLed, 0);
   }
 
-  // ---------- Serial Print measured values
-  Serial.print(Setpoint);
-  Serial.print(",");
-  Serial.print(Setpoint - resetCut);
-  Serial.print(",");
-  Serial.print(Setpoint + resetCut);
-  Serial.print(",");
-  Serial.println(Tc);
+
 
 }
 // ---------- End LOOP ---------- End LOOP ---------- End LOOP ---------- End LOOP ----------
@@ -238,6 +258,24 @@ void sensButton() {
   }
 }
 
+// ---------- Sens Menu Button ---------- Sens Menu Button ---------- Sens Menu Button ----------
+// ---------- Sens Menu Button ---------- Sens Menu Button ---------- Sens Menu Button ----------
+void sensMenuButton() {
+  MenuButtonState = digitalRead(MENU_BUTTON);
+  if (MenuButtonState != lastMenuButtonState)
+  {
+    if (MenuButtonState == LOW && startState == false)
+    {
+      MenuValue++;
+      if(MenuValue > 6){
+        MenuValue = 1;
+      }
+      while (digitalRead(MENU_BUTTON) != HIGH) {}
+    }
+    lastMenuButtonState == MenuButtonState;
+  }
+}
+
 // ---------- Display HEAT ---------- Display HEAT ---------- Display HEAT ----------
 // ---------- Display HEAT ---------- Display HEAT ---------- Display HEAT ----------
 void displayHEAT() {
@@ -247,6 +285,7 @@ void displayHEAT() {
   //if (gap < 2)
   if (myPID.atSetPoint(2))
   {
+    display.setTextColor(WHITE);
     display.fillCircle(54, 38, 3, SSD1306_WHITE);
     display.setCursor(4, 35);
     display.println("Heating");
@@ -254,6 +293,7 @@ void displayHEAT() {
   else
   {
     //myPID.setGains(22.2, 1.08, 114.0);
+    display.setTextColor(WHITE);
     display.drawCircle(54, 38, 3, SSD1306_WHITE);
     display.setCursor(4, 35);
     display.println("Heating");
@@ -264,6 +304,7 @@ void displayHEAT() {
 // ---------- Display Values ---------- Display Values ---------- Display Values ----------
 void displayValues() {
 
+  display.setTextColor(WHITE);
   display.setTextSize(1);
   display.setCursor(5, 20);
   display.println("Temp:");
@@ -287,30 +328,136 @@ void displayValues() {
   display.drawLine(0, 30, 127, 30, SSD1306_WHITE);
   display.drawRect(0, 0, 128, 64, SSD1306_WHITE);
   display.drawLine(0, 45, 127, 45, SSD1306_WHITE);
-  int n = 1;
-  for (int i = 20; i < 120; i += 20) {
-    display.drawLine(i, 45, i, 63, SSD1306_WHITE);
-    display.setCursor(i - 12, 51);
-    display.println(n);
-    n++;
-  }
-  display.fillRect(102, 47, 24, 15, SSD1306_WHITE);
-  display.setCursor(112, 51);
-  display.setTextColor(BLACK);
-  display.println("M");
+  
+  display.drawLine(20, 45, 20, 63, SSD1306_WHITE);
+  display.drawLine(40, 45, 40, 63, SSD1306_WHITE);
+  display.drawLine(60, 45, 60, 63, SSD1306_WHITE);
+  display.drawLine(80, 45, 80, 63, SSD1306_WHITE);
+  display.drawLine(100, 45, 100, 63, SSD1306_WHITE);
 
-  display.setTextColor(WHITE);
+  // Display Feed Rate
   display.drawLine(60, 30, 60, 45, SSD1306_WHITE);
   display.setCursor(63, 35);
-  display.println("F 2.5m/min");
+  display.println("F     m/mi");
+  display.setCursor(70, 35);
+  display.println(String(feedRate));
 
-  //  display.setCursor(5, 5);
-  //  display.println("SetPoint:");
-  //  display.setCursor(62, 5);
-  //  display.println(Setpoint);
-  //  display.setCursor(110, 5);
-  //  display.println("C");
-  //  display.drawCircle(105, 5, 2, SSD1306_WHITE);
+  switch(MenuValue){
+    case 1:
+      display.fillRect(2, 47, 17, 15, SSD1306_WHITE);
+      display.setTextColor(BLACK);
+      display.setCursor(20 - 12, 51);
+      display.println(MenuValue);
+      Setpoint = 195;
+      feedRate = 0.8;
+      display.setTextColor(WHITE);
+      display.setCursor(40 - 12, 51);
+      display.println("2");
+      display.setCursor(60 - 12, 51);
+      display.println("3");
+      display.setCursor(80 - 12, 51);
+      display.println("4");
+      display.setCursor(100 - 12, 51);
+      display.println("5");
+      display.setCursor(112, 51);
+      display.println("M");
+      break;
+    case 2:
+      display.fillRect(22, 47, 17, 15, SSD1306_WHITE);
+      display.setTextColor(BLACK);
+      display.setCursor(40 - 12, 51);
+      display.println(MenuValue);
+      Setpoint = 200;
+      feedRate = 0.9;
+      display.setTextColor(WHITE);
+      display.setCursor(20 - 12, 51);
+      display.println("1");
+      display.setCursor(60 - 12, 51);
+      display.println("3");
+      display.setCursor(80 - 12, 51);
+      display.println("4");
+      display.setCursor(100 - 12, 51);
+      display.println("5");
+      display.setCursor(112, 51);
+      display.println("M");
+      break;
+    case 3:
+      display.fillRect(42, 47, 17, 15, SSD1306_WHITE);
+      display.setTextColor(BLACK);    
+      display.setCursor(60 - 12, 51);
+      display.println(MenuValue);
+      Setpoint = 205;
+      feedRate = 1.0;
+      display.setTextColor(WHITE);
+      display.setCursor(20 - 12, 51);
+      display.println("1");
+      display.setCursor(40 - 12, 51);
+      display.println("2");
+      display.setCursor(80 - 12, 51);
+      display.println("4");
+      display.setCursor(100 - 12, 51);
+      display.println("5");
+      display.setCursor(112, 51);
+      display.println("M");
+      break;
+    case 4:
+      display.fillRect(62, 47, 17, 15, SSD1306_WHITE);
+      display.setTextColor(BLACK);
+      display.setCursor(80 - 12, 51);
+      display.println(MenuValue);
+      Setpoint = 215;
+      feedRate = 1.2;
+      display.setTextColor(WHITE);
+      display.setCursor(20 - 12, 51);
+      display.println("1");
+      display.setCursor(40 - 12, 51);
+      display.println("2");
+      display.setCursor(60 - 12, 51);
+      display.println("3");
+      display.setCursor(100 - 12, 51);
+      display.println("5");
+      display.setCursor(112, 51);
+      display.println("M");      
+      break;
+    case 5:
+      display.fillRect(82, 47, 17, 15, SSD1306_WHITE);
+      display.setTextColor(BLACK);   
+      display.setCursor(100 - 12, 51);
+      display.println(MenuValue);
+      Setpoint = 235;
+      feedRate = 1.3;
+      display.setTextColor(WHITE);
+      display.setCursor(20 - 12, 51);
+      display.println("1");
+      display.setCursor(40 - 12, 51);
+      display.println("2");
+      display.setCursor(60 - 12, 51);
+      display.println("3");
+      display.setCursor(80 - 12, 51);
+      display.println("4");
+      display.setCursor(112, 51);
+      display.println("M");            
+      break;
+    case 6: // -------------------- Manual Mode
+      display.fillRect(102, 47, 24, 15, SSD1306_WHITE);
+      display.setTextColor(BLACK);
+      display.setCursor(112, 51);
+      display.println("M");
+      display.setTextColor(WHITE);
+      display.setCursor(20 - 12, 51);
+      display.println("1");
+      display.setCursor(40 - 12, 51);
+      display.println("2");      
+      display.setCursor(60 - 12, 51);
+      display.println("3");
+      display.setCursor(80 - 12, 51);
+      display.println("4");
+      display.setCursor(100 - 12, 51);
+      display.println("5");
+      feedRate = 2.2;
+      break;
+  }
+
 
   display.display();
   display.clearDisplay();
