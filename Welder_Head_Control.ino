@@ -1,6 +1,7 @@
 /*
   WelderHead Control
 
+  v0.8 - Start signal to robot,
   v0.7 - Implement to Nano Every, remove Analogpin.h
   v0.6 - Select Synergy implement. 1-5 and Manual mode
   v0.5 - PID Now hold stable Temp +-1°C
@@ -10,11 +11,10 @@
   V0.1 - PID control two heater 12V DC -> Max 180°C
 */
 
-float version = 0.7;
+float version = 0.8;
 
 // ------------------ Thermistor  ------------------
 // ------------------ Thermistor  ------------------
-//#include "AnalogPin.h"
 #include <Thermistor.h>
 #include <NTC_Thermistor.h>
 #include <AverageThermistor.h>
@@ -23,9 +23,9 @@ float version = 0.7;
 #define REFERENCE_RESISTANCE   10000
 #define NOMINAL_RESISTANCE     100000
 #define NOMINAL_TEMPERATURE    25
-#define B_VALUE                3950
+#define B_VALUE                3950  // 3950
 
-#define READINGS_NUMBER 4
+#define READINGS_NUMBER 5
 #define DELAY_TIME 10
 
 Thermistor* thermistor = NULL;
@@ -38,19 +38,22 @@ double Tc;
 #define HeaterLed 10
 
 #define SETPOINT_PIN A0  // Setpoint Potentiometer
-//AnalogPin INPoti(A0);  // Setpoint Potentiometer
 int valuePoti;
 uint32_t val;
 double Setpoint, Output;
 bool ResetPid = false;
 #define resetCut 18  // Reset PID +-18°C
+long startMillis;
+long endMillis;
+int Interval = 12000;
+int StartRobotFlag = 0;
 
 #define BANGBANG 1
 #define OUTPUT_MIN 0    // 0
 #define OUTPUT_MAX 255  // 255
-#define KP 8.00         // 8;        8.0;   5.0;  15.0;
-#define KI 0.22         // 0.18;     0.22;  0.22;  0.3;
-#define KD 0.1          // 4000.0;   0.1;   0.1;   0.0;
+#define KP 8.00         // 8.0;   5.0;  15.0;
+#define KI 0.22         // 0.22;  0.22;  0.3;
+#define KD 0.1          // 0.1;   0.1;   0.0;
 
 //myPID.setGains(22.2, 1.08, 114.0);
 AutoPID myPID(&Tc, &Setpoint, &Output, OUTPUT_MIN, OUTPUT_MAX, KP, KI, KD);
@@ -66,7 +69,7 @@ AutoPID myPID(&Tc, &Setpoint, &Output, OUTPUT_MIN, OUTPUT_MAX, KP, KI, KD);
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-#define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3C
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
@@ -100,6 +103,7 @@ void sensMenuButton();
 void readSetpoint();
 void displayHEAT();
 void displayValues();
+void startToRobot();
 
 // ---------- SETUP ---------- SETUP ---------- SETUP ---------- SETUP ----------
 // ---------- SETUP ---------- SETUP ---------- SETUP ---------- SETUP ----------
@@ -119,6 +123,7 @@ void setup() {
   lastMenuButtonState = digitalRead(MENU_BUTTON);
 
   analogReference(EXTERNAL);
+  
   Thermistor* originThermistor = new NTC_Thermistor(
     THERMISTOR_PIN,
     REFERENCE_RESISTANCE,
@@ -204,6 +209,8 @@ void loop() {
     }
 
     myPID.run();
+    displayHEAT();
+    //digitalWrite(HeaterLed, myPID.atSetPoint(2));
 
     if ( Tc > Setpoint + 10 ) {
       //    if ( Tc > maxTemp + 15 ) {
@@ -212,8 +219,9 @@ void loop() {
     else {
       analogWrite(Heater, Output);
     }
-    digitalWrite(HeaterLed, myPID.atSetPoint(2));
-    displayHEAT();
+
+    startToRobot();
+    
   }
   else if (startState == false) {
     analogWrite(Heater, 0);
@@ -252,6 +260,8 @@ void sensButton() {
     if (ButtonState == LOW && Setpoint >= minTemp && Setpoint <= maxTemp)
     {
       startState = !startState;
+      StartRobotFlag = 0;
+      startMillis = millis();
       if (ResetPid == false) {
         ResetPid = true;
       }
@@ -300,6 +310,25 @@ void displayHEAT() {
     display.println("Heating");
   }
 }
+
+// ---------- Start to robot ---------- Start to robot ---------- Start to robot ---------- Start to robot
+// ---------- Start to robot ---------- Start to robot ---------- Start to robot ---------- Start to robot
+void startToRobot(){
+    if (StartRobotFlag == 0){
+      endMillis = millis();
+      if ( endMillis - startMillis >= Interval ){
+        StartRobotFlag = 1;
+      }
+    }
+    if (StartRobotFlag == 1){
+      digitalWrite(HeaterLed, HIGH);  // Start signal to Robot
+    }
+
+    if (!myPID.atSetPoint(2)){
+      startMillis = endMillis;
+    }
+}
+
 
 // ---------- Display Values ---------- Display Values ---------- Display Values ----------
 // ---------- Display Values ---------- Display Values ---------- Display Values ----------
