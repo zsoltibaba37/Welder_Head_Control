@@ -77,7 +77,28 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define maxTemp 250
 
 unsigned long prevMillis;
-#define refreshTime 40 // Display refresh time in millisecond
+#define refreshTime 80  // Display refresh time in millisecond
+
+// ------------------ Stepper ------------------
+// ------------------ Stepper ------------------
+// Cylinder Diameter = 10.6mm 
+// Cylinder circumference = 33.33mm
+// 1 m/min = 16,66 mm/s
+// 0.5 rev/sec = 1 m/min
+
+// 200 step/rev 
+// 100 step/sec = 1 m/min
+// 1000 millisec / 200<-(100on 100off) = 5 millisec
+
+#define STEP_PIN 6          // 3 Green
+#define DIR_PIN 7           // 2 Yellow
+#define STEPP_MODE 200
+
+unsigned long stepPrevMillis = 0;
+unsigned long onTime =  500;      // 
+//unsigned long offTime = 50;
+bool stepState = HIGH;
+
 
 // ------------------ Buttons ------------------
 // ------------------ Buttons ------------------
@@ -104,6 +125,8 @@ void readSetpoint();
 void displayHEAT();
 void displayValues();
 void startToRobot();
+void moveForward();
+//void moveBackward();
 
 // ---------- SETUP ---------- SETUP ---------- SETUP ---------- SETUP ----------
 // ---------- SETUP ---------- SETUP ---------- SETUP ---------- SETUP ----------
@@ -145,11 +168,16 @@ void setup() {
   Setpoint = map(valuePoti, 0, 1023, minTemp, maxTemp);
 
   //myPID.setBangBang(BANGBANG);
-  myPID.setTimeStep(22);
-  delay(5);
+  myPID.setTimeStep(40);
+  //delay(5);
 
   pinMode(HeaterLed, OUTPUT);
 
+  // ------------------ STEPPER  ------------------
+  pinMode(STEP_PIN, OUTPUT);
+  pinMode(DIR_PIN, OUTPUT);
+
+  // ------------------ INITIAL DISPLAY  ------------------
   display.clearDisplay();
   display.setTextSize(2);
   display.setTextColor(WHITE);
@@ -168,7 +196,7 @@ void setup() {
 
   //  while (digitalRead(ENTER_BUTTON) == HIGH) {
   //  }
-  delay(1000);
+  delay(500);
   //Serial.println("Setup done....");
   display.clearDisplay();
 }
@@ -183,21 +211,22 @@ void loop() {
   if (MenuValue == 6) {
     readSetpoint();
   }
-  //readSetpoint();
+  
 
   // ---------- Refresh Display
   if (millis() - prevMillis >= refreshTime) {
+    // 54 millisecundum the display
     displayValues();
     prevMillis = millis();
-
+    
     // ---------- Serial Print measured values
-    Serial.print(Setpoint);
-    Serial.print(",");
-    Serial.print(Setpoint - resetCut);
-    Serial.print(",");
-    Serial.print(Setpoint + resetCut);
-    Serial.print(",");
-    Serial.println(Tc);
+//    Serial.print(Setpoint);
+//    Serial.print(",");
+//    Serial.print(Setpoint - resetCut);
+//    Serial.print(",");
+//    Serial.print(Setpoint + resetCut);
+//    Serial.print(",");
+//    Serial.println(Tc);
   }
 
   // ---------- Start Heateing
@@ -221,6 +250,9 @@ void loop() {
     }
 
     startToRobot();
+
+    // Move stepper forward Test
+    moveForward();
     
   }
   else if (startState == false) {
@@ -237,7 +269,7 @@ void loop() {
 void readSetpoint() {
   // Read Pot
   val = 0;
-  int sampleNumPot = 4;
+  int sampleNumPot = 3;
   //INPoti.setNoiseThreshold(5);
   for (int i = 0; i < sampleNumPot; i++) {
     //val += INPoti.read();
@@ -262,6 +294,7 @@ void sensButton() {
       startState = !startState;
       StartRobotFlag = 0;
       startMillis = millis();
+      digitalWrite(DIR_PIN, LOW);
       if (ResetPid == false) {
         ResetPid = true;
       }
@@ -293,7 +326,6 @@ void sensMenuButton() {
 // ---------- Display HEAT ---------- Display HEAT ---------- Display HEAT ----------
 void displayHEAT() {
   // Display Text and Icon
-
   if (myPID.atSetPoint(2))
   {
     display.setTextColor(WHITE);
@@ -327,6 +359,28 @@ void startToRobot(){
     if (!myPID.atSetPoint(2)){
       startMillis = endMillis;
     }
+}
+
+// ---------- Stepper forward / backward ---------- Stepper forward / backward ----------
+// ---------- Stepper forward / backward ---------- Stepper forward / backward ----------
+void moveForward() {
+  //digitalWrite(DIR_PIN, LOW);
+//  if (millis() - stepPrevMillis >= offTime) {
+//    digitalWrite(STEP_PIN, LOW);
+//    stepPrevMillis = millis();
+//  }
+// else if
+  if (micros() - stepPrevMillis >= onTime) {
+    digitalWrite(STEP_PIN, stepState);
+    stepPrevMillis = micros();
+    stepState = !stepState;
+  }
+
+//  digitalWrite(DIR_PIN, LOW);
+//  digitalWrite(STEP_PIN, HIGH);
+//  delayMicroseconds(onTime);
+//  digitalWrite(STEP_PIN, LOW);
+//  delayMicroseconds(onTime);
 }
 
 
@@ -371,7 +425,7 @@ void displayValues() {
   display.setCursor(63, 35);
   display.println("F     m/mi");
   display.setCursor(70, 35);
-  display.println(String(feedRate));
+  display.println(feedRate);
 
   switch (MenuValue) {
     case 1:
