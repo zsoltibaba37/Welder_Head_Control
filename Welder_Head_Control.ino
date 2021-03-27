@@ -1,6 +1,7 @@
 /*
   WelderHead Control
 
+  v0.9 - Stepper + sinergy select implement with Timer interrupt
   v0.8 - Start signal to robot,
   v0.7 - Implement to Nano Every, remove Analogpin.h
   v0.6 - Select Synergy implement. 1-5 and Manual mode
@@ -11,7 +12,7 @@
   V0.1 - PID control two heater 12V DC -> Max 180°C
 */
 
-float version = 0.8;
+float version = 0.9;
 
 // ------------------ Thermistor  ------------------
 // ------------------ Thermistor  ------------------
@@ -45,14 +46,14 @@ bool ResetPid = false;
 #define resetCut 18  // Reset PID +-18°C
 long startMillis;
 long endMillis;
-int Interval = 12000;
+int Interval = 12000; 
 int StartRobotFlag = 0;
 
 #define BANGBANG 1
 #define OUTPUT_MIN 0    // 0
 #define OUTPUT_MAX 255  // 255
-#define KP 8.00         // 8.0;   5.0;  15.0;
-#define KI 0.22         // 0.22;  0.22;  0.3;
+#define KP 8.88         // 8.0;   5.0;  15.0;
+#define KI 0.3         // 0.22;  0.22;  0.3;
 #define KD 0.1          // 0.1;   0.1;   0.0;
 
 //myPID.setGains(22.2, 1.08, 114.0);
@@ -89,15 +90,16 @@ unsigned long prevMillis;
 // 200 step/rev 
 // 100 step/sec = 1 m/min
 // 1000 millisec / 200<-(100on 100off) = 5 millisec
+#include <TimerOne.h>
 
-#define STEP_PIN 6          // 3 Green
-#define DIR_PIN 7           // 2 Yellow
-#define STEPP_MODE 200
+#define STEP_PIN PD6        // Pin 6 - 3 Green
+#define DIR_PIN 7           // Pin 7 - 2 Yellow
+#define STEPP_MODE 400 
 
-unsigned long stepPrevMillis = 0;
-unsigned long onTime =  500;      // 
-//unsigned long offTime = 50;
-bool stepState = HIGH;
+//unsigned long stepPrevMillis = 0;
+int freqTime =  2500;    // 1.0m/min
+// 2.2m/min = 1136
+// 0.8m/min = 3125
 
 
 // ------------------ Buttons ------------------
@@ -168,14 +170,17 @@ void setup() {
   Setpoint = map(valuePoti, 0, 1023, minTemp, maxTemp);
 
   //myPID.setBangBang(BANGBANG);
-  myPID.setTimeStep(40);
+  myPID.setTimeStep(22);
   //delay(5);
 
   pinMode(HeaterLed, OUTPUT);
 
   // ------------------ STEPPER  ------------------
-  pinMode(STEP_PIN, OUTPUT);
+  DDRD |= (1 << STEP_PIN); // pinMode(STEP_PIN, OUTPUT);
   pinMode(DIR_PIN, OUTPUT);
+
+  Timer1.initialize(freqTime);
+  Timer1.attachInterrupt(moveForward);
 
   // ------------------ INITIAL DISPLAY  ------------------
   display.clearDisplay();
@@ -190,13 +195,13 @@ void setup() {
   display.setTextSize(1);
   display.setCursor(8, 52);
   display.println("v" + String(version));
-  display.setCursor(60, 52);
-  display.println("Pr. Enter");
+//  display.setCursor(60, 52);
+//  display.println("Pr. Enter");
   display.display();
 
   //  while (digitalRead(ENTER_BUTTON) == HIGH) {
   //  }
-  delay(500);
+  delay(2000);
   //Serial.println("Setup done....");
   display.clearDisplay();
 }
@@ -206,7 +211,7 @@ void setup() {
 void loop() {
   // ---------- Sens button, Read Temp, Read Setpoint
   sensButton();
-  sensMenuButton();
+  //sensMenuButton();
   Tc = thermistor->readCelsius();
   if (MenuValue == 6) {
     readSetpoint();
@@ -230,7 +235,7 @@ void loop() {
   }
 
   // ---------- Start Heateing
-  if (startState == true ) {
+  if ( startState == true ) {
 
     if (myPID.atSetPoint(resetCut) && ResetPid == true) {
       myPID.reset();
@@ -248,14 +253,10 @@ void loop() {
     else {
       analogWrite(Heater, Output);
     }
-
-    startToRobot();
-
-    // Move stepper forward Test
-    moveForward();
-    
+    startToRobot();  
   }
   else if (startState == false) {
+    sensMenuButton();
     analogWrite(Heater, 0);
     analogWrite(HeaterLed, 0);
   }
@@ -363,26 +364,11 @@ void startToRobot(){
 
 // ---------- Stepper forward / backward ---------- Stepper forward / backward ----------
 // ---------- Stepper forward / backward ---------- Stepper forward / backward ----------
-void moveForward() {
-  //digitalWrite(DIR_PIN, LOW);
-//  if (millis() - stepPrevMillis >= offTime) {
-//    digitalWrite(STEP_PIN, LOW);
-//    stepPrevMillis = millis();
-//  }
-// else if
-  if (micros() - stepPrevMillis >= onTime) {
-    digitalWrite(STEP_PIN, stepState);
-    stepPrevMillis = micros();
-    stepState = !stepState;
-  }
-
-//  digitalWrite(DIR_PIN, LOW);
-//  digitalWrite(STEP_PIN, HIGH);
-//  delayMicroseconds(onTime);
-//  digitalWrite(STEP_PIN, LOW);
-//  delayMicroseconds(onTime);
+void moveForward(void) {
+  if ( startState == true && !digitalRead(MENU_BUTTON)) {
+    PORTD ^= (1 << STEP_PIN);
+    }
 }
-
 
 // ---------- Display Values ---------- Display Values ---------- Display Values ----------
 // ---------- Display Values ---------- Display Values ---------- Display Values ----------
@@ -435,6 +421,9 @@ void displayValues() {
       display.println(MenuValue);
       Setpoint = 195;
       feedRate = 0.8;
+      Timer1.stop();
+      Timer1.initialize(3125);
+      Timer1.start();
       display.setTextColor(WHITE);
       display.setCursor(40 - 12, 51);
       display.println("2");
@@ -454,6 +443,9 @@ void displayValues() {
       display.println(MenuValue);
       Setpoint = 200;
       feedRate = 0.9;
+      Timer1.stop();
+      Timer1.initialize(2778);
+      Timer1.start();      
       display.setTextColor(WHITE);
       display.setCursor(20 - 12, 51);
       display.println("1");
@@ -473,6 +465,9 @@ void displayValues() {
       display.println(MenuValue);
       Setpoint = 205;
       feedRate = 1.0;
+      Timer1.stop();
+      Timer1.initialize(2500);
+      Timer1.start();      
       display.setTextColor(WHITE);
       display.setCursor(20 - 12, 51);
       display.println("1");
@@ -492,6 +487,9 @@ void displayValues() {
       display.println(MenuValue);
       Setpoint = 215;
       feedRate = 1.2;
+      Timer1.stop();
+      Timer1.initialize(2083);
+      Timer1.start();
       display.setTextColor(WHITE);
       display.setCursor(20 - 12, 51);
       display.println("1");
@@ -510,7 +508,10 @@ void displayValues() {
       display.setCursor(100 - 12, 51);
       display.println(MenuValue);
       Setpoint = 235;
-      feedRate = 1.3;
+      feedRate = 2.0;
+      Timer1.stop();
+      Timer1.initialize(1250);
+      Timer1.start();      
       display.setTextColor(WHITE);
       display.setCursor(20 - 12, 51);
       display.println("1");
@@ -539,7 +540,10 @@ void displayValues() {
       display.println("4");
       display.setCursor(100 - 12, 51);
       display.println("5");
-      feedRate = 2.2;
+      feedRate = 1.8;
+      Timer1.stop();
+      Timer1.initialize(1389);
+      Timer1.start();      
       break;
   }
 
