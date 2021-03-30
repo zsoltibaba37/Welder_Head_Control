@@ -1,6 +1,7 @@
 /*
   WelderHead Control
 
+  v0.91 - 4 butoon -> Start Heat; Select Sinergy, Forward Filament; Backward Filament
   v0.9 - Stepper + sinergy select implement with Timer interrupt
   v0.8 - Start signal to robot,
   v0.7 - Implement to Nano Every, remove Analogpin.h
@@ -12,7 +13,7 @@
   V0.1 - PID control two heater 12V DC -> Max 180°C
 */
 
-float version = 0.9;
+float version = 0.91;
 
 // ------------------ Thermistor  ------------------
 // ------------------ Thermistor  ------------------
@@ -43,17 +44,17 @@ int valuePoti;
 uint32_t val;
 double Setpoint, Output;
 bool ResetPid = false;
-#define resetCut 18  // Reset PID +-18°C
+#define resetCut 15  // Reset PID +-18°C
 long startMillis;
 long endMillis;
-int Interval = 12000; 
+int Interval = 10000; // When reach Setpoint Temp, and keep
 int StartRobotFlag = 0;
 
 #define BANGBANG 1
 #define OUTPUT_MIN 0    // 0
 #define OUTPUT_MAX 255  // 255
 #define KP 8.88         // 8.0;   5.0;  15.0;
-#define KI 0.3         // 0.22;  0.22;  0.3;
+#define KI 0.3          // 0.22;  0.22;  0.3;
 #define KD 0.1          // 0.1;   0.1;   0.0;
 
 //myPID.setGains(22.2, 1.08, 114.0);
@@ -78,7 +79,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define maxTemp 250
 
 unsigned long prevMillis;
-#define refreshTime 80  // Display refresh time in millisecond
+#define refreshTime 30  // Display refresh time in millisecond
 
 // ------------------ Stepper ------------------
 // ------------------ Stepper ------------------
@@ -94,13 +95,17 @@ unsigned long prevMillis;
 
 #define STEP_PIN PD6        // Pin 6 - 3 Green
 #define DIR_PIN 7           // Pin 7 - 2 Yellow
-#define STEPP_MODE 400 
+// ----- Choose a mode 
+//#define STEPP_MODE 200
+#define STEPP_MODE 400
+//#define STEPP_MODE 800
+//#define STEPP_MODE 1600
 
-//unsigned long stepPrevMillis = 0;
-int freqTime =  2500;    // 1.0m/min
+int freqTime = 1000000/STEPP_MODE;
+//int freqTime =  2500;    // Microsecond -> 1.0m/min 
 // 2.2m/min = 1136
 // 0.8m/min = 3125
-
+int setTime;
 
 // ------------------ Buttons ------------------
 // ------------------ Buttons ------------------
@@ -112,6 +117,8 @@ int lastButtonState;
 int MenuButtonState;
 int lastMenuButtonState;
 int MenuValue = 6;
+#define FORWARD_BUTTON 4
+#define BACKWARD_BUTTON 8
 
 // ------------------ Feed rate ------------------
 // ------------------ Feed rate ------------------
@@ -127,8 +134,8 @@ void readSetpoint();
 void displayHEAT();
 void displayValues();
 void startToRobot();
-void moveForward();
-//void moveBackward();
+void moveFilament();
+void checkDir();
 
 // ---------- SETUP ---------- SETUP ---------- SETUP ---------- SETUP ----------
 // ---------- SETUP ---------- SETUP ---------- SETUP ---------- SETUP ----------
@@ -146,6 +153,8 @@ void setup() {
   pinMode(MENU_BUTTON, INPUT_PULLUP);
   lastButtonState = digitalRead(ENTER_BUTTON);
   lastMenuButtonState = digitalRead(MENU_BUTTON);
+  pinMode(FORWARD_BUTTON, INPUT_PULLUP);
+  pinMode(BACKWARD_BUTTON, INPUT_PULLUP);
 
   analogReference(EXTERNAL);
   
@@ -180,7 +189,7 @@ void setup() {
   pinMode(DIR_PIN, OUTPUT);
 
   Timer1.initialize(freqTime);
-  Timer1.attachInterrupt(moveForward);
+  Timer1.attachInterrupt(moveFilament);
 
   // ------------------ INITIAL DISPLAY  ------------------
   display.clearDisplay();
@@ -193,7 +202,7 @@ void setup() {
   display.setCursor(26, 34);
   display.println("Control");
   display.setTextSize(1);
-  display.setCursor(8, 52);
+  display.setCursor(50, 52);
   display.println("v" + String(version));
 //  display.setCursor(60, 52);
 //  display.println("Pr. Enter");
@@ -211,13 +220,13 @@ void setup() {
 void loop() {
   // ---------- Sens button, Read Temp, Read Setpoint
   sensButton();
-  //sensMenuButton();
+  sensMenuButton();
+  checkDir();
   Tc = thermistor->readCelsius();
   if (MenuValue == 6) {
     readSetpoint();
   }
   
-
   // ---------- Refresh Display
   if (millis() - prevMillis >= refreshTime) {
     // 54 millisecundum the display
@@ -244,7 +253,6 @@ void loop() {
 
     myPID.run();
     displayHEAT();
-    //digitalWrite(HeaterLed, myPID.atSetPoint(2));
 
     if ( Tc > Setpoint + 10 ) {
       //    if ( Tc > maxTemp + 15 ) {
@@ -256,7 +264,6 @@ void loop() {
     startToRobot();  
   }
   else if (startState == false) {
-    sensMenuButton();
     analogWrite(Heater, 0);
     analogWrite(HeaterLed, 0);
   }
@@ -270,7 +277,7 @@ void loop() {
 void readSetpoint() {
   // Read Pot
   val = 0;
-  int sampleNumPot = 3;
+  int sampleNumPot = 4;
   //INPoti.setNoiseThreshold(5);
   for (int i = 0; i < sampleNumPot; i++) {
     //val += INPoti.read();
@@ -295,7 +302,6 @@ void sensButton() {
       startState = !startState;
       StartRobotFlag = 0;
       startMillis = millis();
-      digitalWrite(DIR_PIN, LOW);
       if (ResetPid == false) {
         ResetPid = true;
       }
@@ -364,10 +370,19 @@ void startToRobot(){
 
 // ---------- Stepper forward / backward ---------- Stepper forward / backward ----------
 // ---------- Stepper forward / backward ---------- Stepper forward / backward ----------
-void moveForward(void) {
-  if ( startState == true && !digitalRead(MENU_BUTTON)) {
+void moveFilament(void) {
+  if ( !digitalRead(FORWARD_BUTTON) || !digitalRead(BACKWARD_BUTTON)) {
     PORTD ^= (1 << STEP_PIN);
     }
+}
+
+void checkDir(void){
+  if ( !digitalRead(FORWARD_BUTTON) && digitalRead(BACKWARD_BUTTON)) {
+    digitalWrite(DIR_PIN, LOW);
+  }
+  else if ( !digitalRead(BACKWARD_BUTTON) && digitalRead(FORWARD_BUTTON)) {
+    digitalWrite(DIR_PIN, HIGH);
+  }
 }
 
 // ---------- Display Values ---------- Display Values ---------- Display Values ----------
@@ -421,8 +436,10 @@ void displayValues() {
       display.println(MenuValue);
       Setpoint = 195;
       feedRate = 0.8;
+      setTime = freqTime/feedRate;
       Timer1.stop();
-      Timer1.initialize(3125);
+      Timer1.initialize(setTime);
+      //Timer1.initialize(3125);
       Timer1.start();
       display.setTextColor(WHITE);
       display.setCursor(40 - 12, 51);
@@ -443,8 +460,10 @@ void displayValues() {
       display.println(MenuValue);
       Setpoint = 200;
       feedRate = 0.9;
+      setTime = freqTime/feedRate;
       Timer1.stop();
-      Timer1.initialize(2778);
+      Timer1.initialize(setTime);
+      //Timer1.initialize(2778);
       Timer1.start();      
       display.setTextColor(WHITE);
       display.setCursor(20 - 12, 51);
@@ -465,8 +484,10 @@ void displayValues() {
       display.println(MenuValue);
       Setpoint = 205;
       feedRate = 1.0;
+      setTime = freqTime/feedRate;
       Timer1.stop();
-      Timer1.initialize(2500);
+      Timer1.initialize(setTime);
+      //Timer1.initialize(2500);
       Timer1.start();      
       display.setTextColor(WHITE);
       display.setCursor(20 - 12, 51);
@@ -487,8 +508,10 @@ void displayValues() {
       display.println(MenuValue);
       Setpoint = 215;
       feedRate = 1.2;
+      setTime = freqTime/feedRate;
       Timer1.stop();
-      Timer1.initialize(2083);
+      Timer1.initialize(setTime);
+      //Timer1.initialize(2083);
       Timer1.start();
       display.setTextColor(WHITE);
       display.setCursor(20 - 12, 51);
@@ -509,8 +532,10 @@ void displayValues() {
       display.println(MenuValue);
       Setpoint = 235;
       feedRate = 2.0;
+      setTime = freqTime/feedRate;
       Timer1.stop();
-      Timer1.initialize(1250);
+      Timer1.initialize(setTime);
+      //Timer1.initialize(1250);
       Timer1.start();      
       display.setTextColor(WHITE);
       display.setCursor(20 - 12, 51);
@@ -548,7 +573,5 @@ void displayValues() {
   }
 
   display.display();
-
   display.clearDisplay();
-
 }
