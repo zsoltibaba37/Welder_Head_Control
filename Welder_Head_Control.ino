@@ -27,7 +27,7 @@ float version = 0.91;
 #define NOMINAL_TEMPERATURE    25
 #define B_VALUE                3950  // 3950
 
-#define READINGS_NUMBER 5
+#define READINGS_NUMBER 4
 #define DELAY_TIME 10
 
 Thermistor* thermistor = NULL;
@@ -79,7 +79,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define maxTemp 250
 
 unsigned long prevMillis;
-#define refreshTime 30  // Display refresh time in millisecond
+#define refreshTime 33  // Display refresh time in millisecond
 
 // ------------------ Stepper ------------------
 // ------------------ Stepper ------------------
@@ -178,7 +178,7 @@ void setup() {
   Setpoint = map(valuePoti, 0, 1023, minTemp, maxTemp);
 
   //myPID.setBangBang(BANGBANG);
-  myPID.setTimeStep(22);
+  myPID.setTimeStep(100);
   //delay(5);
 
   pinMode(HeaterLed, OUTPUT);
@@ -228,7 +228,7 @@ void loop() {
 
   // ---------- Refresh Display
   if (millis() - prevMillis >= refreshTime) {
-    // 54 millisecundum the display
+    // The refresh time is 54 millisecundum
     displayValues();
     prevMillis = millis();
 
@@ -354,11 +354,12 @@ void startToRobot() {
     endMillis = millis();
     if ( endMillis - startMillis >= Interval ) {
       StartRobotFlag = 1;
+      digitalWrite(HeaterLed, HIGH);  // Start signal to Robot
     }
   }
-  if (StartRobotFlag == 1) {
-    digitalWrite(HeaterLed, HIGH);  // Start signal to Robot
-  }
+//  if (StartRobotFlag == 1) {
+//    digitalWrite(HeaterLed, HIGH);  // Start signal to Robot
+//  }
 
   if (!myPID.atSetPoint(2)) {
     startMillis = endMillis;
