@@ -1,6 +1,7 @@
 /*
   WelderHead Control
 
+  v0.94 - New 1.75mm nozzle test. NTC near the nozzle
   v0.93 - New Hotend test 0.1m/min to 1.0m/min
   v0.92 - Feed-rate Potentiometer included and tested
   v0.91 - 4 butoon -> Start Heat; Select Sinergy, Forward Filament; Backward Filament
@@ -15,7 +16,7 @@
   V0.1 - PID control two heater 12V DC -> Max 180°C
 */
 
-float version = 0.93;
+float version = 0.94;
 
 // ------------------ Thermistor  ------------------
 // ------------------ Thermistor  ------------------
@@ -46,7 +47,7 @@ int valuePoti;
 uint32_t val;
 double Setpoint, Output;
 bool ResetPid = false;
-#define resetCut 10  // Reset PID +-18°C
+#define resetCut 7  // Reset PID +-18°C
 long startMillis;
 long endMillis;
 int Interval = 2000; // When reach Setpoint Temp, and hold the temp
@@ -55,8 +56,8 @@ int StartRobotFlag = 0;
 #define BANGBANG 1
 #define OUTPUT_MIN 0    // 0
 #define OUTPUT_MAX 255  // 255
-#define KP 8.88         // 8.0;   5.0;  15.0;
-#define KI 0.3          // 0.22;  0.22;  0.3;
+#define KP 8.88         // 8.88;   5.0;  15.0;
+#define KI 0.3          // 0.3;  0.22;  0.3;
 #define KD 0.1          // 0.1;   0.1;   0.0;
 
 //myPID.setGains(22.2, 1.08, 114.0);
@@ -78,10 +79,10 @@ AutoPID myPID(&Tc, &Setpoint, &Output, OUTPUT_MIN, OUTPUT_MAX, KP, KI, KD);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define minTemp 210
-#define maxTemp 290
+#define maxTemp 300
 
 unsigned long prevMillis;
-#define refreshTime 250  // Display refresh time in millisecond
+#define refreshTime 125  // Display refresh time in millisecond
 
 // ------------------ Stepper ------------------
 // ------------------ Stepper ------------------
@@ -107,8 +108,8 @@ int freqTime = 1000000 / STEPP_MODE;
 //int freqTime =  2500;    // Microsecond -> 1.0m/min
 // 2.2m/min = 1136
 // 0.8m/min = 3125
-#define MIN_FEED 0.1
-#define MAX_FEED 2.0
+#define MIN_FEED 3
+#define MAX_FEED 20
 float feedRate = 0.8;
 int setTime = freqTime / feedRate;
 bool setTimerFlag = true;
@@ -395,9 +396,9 @@ void readSpeed(void) {
     valSpeed += analogRead(SPEED_PIN);
   }
   valuePotSpeed = int(valSpeed / sampleNumSpeed);
-  // MIN_FEED 0.1
-  // MAX_FEED 1.0
-  int mapVal = map(valuePotSpeed, 0, 1023, 3, 12);
+  // MIN_FEED 3
+  // MAX_FEED 20
+  int mapVal = map(valuePotSpeed, 0, 1023, MIN_FEED, MAX_FEED);
   feedRate = (float)mapVal / 10.0 ;
 }
 
